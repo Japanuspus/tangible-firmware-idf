@@ -1,7 +1,18 @@
-#include "quirc.h";
+#include <string.h> // for memset
+
+#include "esp_log.h"
 #include "esp_camera.h"
+
+#include "quirc.h"
+#include "quirc_internal.h"
+#include "qrcamera.h"
+
+static camera_config_t camera_config;
 static struct quirc qr_recognizer;
-camera_config_t camera_config;
+static struct quirc_data qr_data;
+static struct quirc_code qr_code;
+
+static const char *TAG = "qrcamera"; //for log
 
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
@@ -53,11 +64,6 @@ esp_err_t setup_camera() {
     return esp_camera_init(&camera_config);
 }
 
-esp_err_t setup_qrcamera() {
-    memset(&qr_recognizer, 0, sizeof(recognizer));
-    return setup_camera();
-}
-
 static const char *data_type_str(int dt)
 {
     switch (dt) {
@@ -84,66 +90,73 @@ int qr_recognize()
     camera_fb_t *fb = NULL;
 
     if (camera_config.frame_size > FRAMESIZE_SVGA) {
-        ESP_LOGD(TAG, "Camera Frame Size err %d, support maxsize is QVGA", (camera_config.frame_size));
+        ESP_LOGI(TAG, "Camera Frame Size err %d, support maxsize is QVGA", (camera_config.frame_size));
         return -1;
     }
 
     dump_ram_state();
     fb = esp_camera_fb_get();
     if (!fb) {
-        ESP_LOGD(TAG, "Camera capture failed");
+        ESP_LOGI(TAG, "Camera capture failed");
         return -2;
     }
-    ESP_LOGD(TAG, "Camera capture success");
+    ESP_LOGI(TAG, "Camera capture success");
     dump_ram_state();
 
-    qr_recognizer.w = fb->w;
-    qr_recognizer.h = fb->h;
-    qr_recognizer.image = fb.buf;
+    qr_recognizer.w = fb->width;
+    qr_recognizer.h = fb->height;
+    qr_recognizer.image = fb->buf;
 
-    quirc_end(qr_recognizer);
-
+    quirc_end(&qr_recognizer);
 
     esp_camera_fb_return(fb);
-    ESP_LOGD(TAG, "Frame buffer returned");
+    ESP_LOGI(TAG, "Frame buffer returned");
     dump_ram_state();
     
     // Return the number of QR-codes identified in the last processed image.
-    return quirc_count(qr_recognizer);
+    return quirc_count(&qr_recognizer);
 }
 
 static void dump_data(const struct quirc_data *data)
 {
-    ESP_LOGD(TAG, "Version: %d\n", data->version);
-    ESP_LOGD(TAG, "ECC level: %c\n", "MLHQ"[data->ecc_level]);
-    ESP_LOGD(TAG, "Mask: %d\n", data->mask);
-    ESP_LOGD(TAG, "Data type: %d (%s)\n", data->data_type, data_type_str(data->data_type));
-    ESP_LOGD(TAG, "Length: %d\n", data->payload_len);
-    ESP_LOGD(TAG, "Payload: %s\n", data->payload);
+    ESP_LOGI(TAG, "Version: %d\n", data->version);
+    ESP_LOGI(TAG, "ECC level: %c\n", "MLHQ"[data->ecc_level]);
+    ESP_LOGI(TAG, "Mask: %d\n", data->mask);
+    ESP_LOGI(TAG, "Data type: %d (%s)\n", data->data_type, data_type_str(data->data_type));
+    ESP_LOGI(TAG, "Length: %d\n", data->payload_len);
+    ESP_LOGI(TAG, "Payload: %s\n", data->payload);
     if (data->eci) {
-        ESP_LOGD(TAG, "ECI: %d\n", data->eci);
+        ESP_LOGI(TAG, "ECI: %d\n", data->eci);
     }
 }
 
 
 int qr_unique(camera_config_t *camera_config, struct quirc *qr_recognizer, struct quirc_data *data) {
     int res=qr_recognize(camera_config, qr_recognizer);
+    ESP_LOGI(TAG, "Found %d QR code matches", res);
     if (res<0) {return res;}
-    ESP_LOGD(TAG, "Found %d QR code matches", res);
     if (res==0 || res>1) {return res;}
 
-    struct quirc_code code;
-
+    ESP_LOGI(TAG, "Trying to extract matches");
     // Extract the QR-code specified by the given index.
-    quirc_extract(qr_recognizer, 0, &code);
+    quirc_extract(qr_recognizer, 0, &qr_code);
 
     //Decode a QR-code, returning the payload data.
-    quirc_decode_error_t err = quirc_decode(&code, data);
+    quirc_decode_error_t err = quirc_decode(&qr_code, data);
     if (err) {
-        ESP_LOGD(TAG, "Decoding FAILED: %s\n", quirc_strerror(err));
+        ESP_LOGI(TAG, "Decoding FAILED: %s\n", quirc_strerror(err));
         return -10;
     }
-    ESP_LOGD(TAG, "Successfully decoded unique QR");
+    ESP_LOGI(TAG, "Successfully decoded unique QR");
     dump_data(data);
     return 1;
+}
+
+esp_err_t qrcamera_setup() {
+    memset(&qr_recognizer, 0, sizeof(qr_recognizer));
+    return setup_camera();
+}
+
+int qrcamera_get() {
+    return qr_unique(&camera_config, &qr_recognizer, &qr_data);
 }

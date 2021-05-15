@@ -14,7 +14,7 @@
 
 #include "network.h"
 
-static const char *TAG = "t-wifi"; //for log
+static const char *TAG = "tgbl-network"; //for log
 
 #define ssid  "HalWe"
 #define password "11072030"
@@ -119,13 +119,9 @@ void log_wifi_event(int32_t event) {
 static void event_handler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data)
 {
-    if (event_base != WIFI_EVENT) {
-        return;
-    }
-    log_wifi_event(event_id);
-    if (event_id == WIFI_EVENT_STA_START) {
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
-    } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         if (s_retry_num < EXAMPLE_ESP_MAXIMUM_RETRY) {
             esp_wifi_connect();
             s_retry_num++;
@@ -134,7 +130,7 @@ static void event_handler(void* arg, esp_event_base_t event_base,
             xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
         }
         ESP_LOGI(TAG,"connect to the AP fail");
-    } else if (event_id == IP_EVENT_STA_GOT_IP) {
+    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_num = 0;
@@ -266,7 +262,7 @@ esp_err_t post_message(char *msg) {
     ESP_LOGI(TAG, "Posting message: %s\n", msg);
 
     esp_http_client_config_t config = {
-    .url = "http://http://192.168.1.8/tgbl",
+    .url = "http://192.168.1.8/tgbl",
     .event_handler = log_http_event,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);

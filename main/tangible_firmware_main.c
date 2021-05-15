@@ -4,6 +4,7 @@
 #include "esp_log.h"
 
 #include "network.h"
+#include "qrcamera.h"
 
 static const char *TAG = "blink"; //for log
 
@@ -19,23 +20,34 @@ static void blink_led(void)
 
 static void configure_led(void)
 {
-    ESP_LOGI(TAG, "Example configured to blink GPIO LED!");
     gpio_reset_pin(BLINK_GPIO);
     gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
 }
 
 void app_main(void)
 {
+    ESP_LOGI(TAG, "Configure blink led");
     configure_led();
+    ESP_LOGI(TAG, "Configure network");
     network_init();
+    ESP_LOGI(TAG, "Configuring camera");
+    qrcamera_setup();
 
-    for(int i=0;i<5;i++) {
+    for(int i=0;i<500;i++) {
+        ESP_LOGI(TAG, "Loop");
         blink_led();
-        vTaskDelay(500 / portTICK_PERIOD_MS);
+
+        ESP_LOGI(TAG, "Running QR count");
+        int count = qrcamera_get();
+        ESP_LOGI(TAG, "QR count: %d", count);
+
         esp_err_t err = post_message("The foo");
         if (err != ESP_OK) {
             ESP_LOGI(TAG, "Post failed");
-            break;
+        } else {
+            ESP_LOGI(TAG, "Post ok");
         }
+
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }
