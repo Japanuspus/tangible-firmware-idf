@@ -24,12 +24,16 @@ static void configure_led(void)
     gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
 }
 
+
+// default main task stacksize is 3584
+// set in menuconfig -> Component config -> Common ESP-related -> Main task stack size
+// raise stack size to 100000 (64000 still fails)
 void app_main(void)
 {
     ESP_LOGI(TAG, "Configure blink led");
     configure_led();
-    ESP_LOGI(TAG, "Configure network");
-    network_init();
+    // ESP_LOGI(TAG, "Configure network");
+    // network_init();
     ESP_LOGI(TAG, "Configuring camera");
     qrcamera_setup();
 
@@ -41,12 +45,14 @@ void app_main(void)
         int count = qrcamera_get();
         ESP_LOGI(TAG, "QR count: %d", count);
 
+        /*
         esp_err_t err = post_message("The foo");
         if (err != ESP_OK) {
             ESP_LOGI(TAG, "Post failed");
         } else {
             ESP_LOGI(TAG, "Post ok");
         }
+        */
 
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
