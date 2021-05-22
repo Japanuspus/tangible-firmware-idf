@@ -105,6 +105,21 @@ fail:
 	return -1;
 }
 
+int quirc_analyze_buffer(struct quirc *q, uint8_t *b, int w, int h) {
+	if (!QUIRC_PIXEL_ALIAS_IMAGE) {
+		// this method does not support separate pixel buffers
+		return -1;
+	}
+
+	q->pixels = NULL;
+	q->image = b;
+	q->w = w;
+	q->h = h;
+	quirc_begin(q, NULL, NULL);
+	quirc_end(q);
+	return 0;
+}
+
 int quirc_count(const struct quirc *q)
 {
 	return q->num_grids;

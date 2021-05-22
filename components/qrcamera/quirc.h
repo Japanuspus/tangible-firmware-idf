@@ -25,6 +25,17 @@ extern "C" {
 
 struct quirc;
 
+/* Analyse existing buffer
+ * 
+ * Corresponds to calling 
+ *   - quirc_begin
+ *   - copying data
+ *   - quirc_end
+ * Note: this approach does not support downsampled pixels buffer.
+ * Added for tangible-firmware
+ */
+int quirc_analyze_buffer(struct quirc *q, uint8_t *b, int w, int h);
+
 /* Obtain the library version string. */
 const char *quirc_version(void);
 
