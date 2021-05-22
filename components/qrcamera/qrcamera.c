@@ -99,7 +99,7 @@ static void dump_data(const struct quirc_data *data)
 }
 
 
-int process_frame_buffer(camera_fb_t *fb) {
+int process_frame_buffer(camera_fb_t *fb, char *out, size_t out_size) {
     quirc_analyze_buffer(&qr_recognizer, fb->buf, fb->width, fb->height);
  
     // Check number of qr codes    
@@ -122,8 +122,13 @@ int process_frame_buffer(camera_fb_t *fb) {
     }
     ESP_LOGI(TAG, "Successfully decoded unique QR");
     dump_data(&qr_data);
+    if (qr_data.payload_len>=out_size) {
+        ESP_LOGI(TAG, "Oversize payload: %d > %d", out_size, qr_data.payload_len);
+        return -20;
+    }
+    memcpy(out, qr_data.payload, qr_data.payload_len);
+    out[qr_data.payload_len]=0;
     return 1;
-
 }
 
 esp_err_t qrcamera_setup() {
@@ -136,7 +141,7 @@ esp_err_t qrcamera_setup() {
 // -2: no framebuffer
 // 0: ok, but no unique match
 // 1: exactly one match
-int qrcamera_get() {
+int qrcamera_get(char *out, size_t out_size) {
     camera_fb_t *fb = NULL;
     dump_ram_state();
     fb = esp_camera_fb_get();
@@ -146,7 +151,7 @@ int qrcamera_get() {
     }
     ESP_LOGI(TAG, "Camera capture success");
     dump_ram_state();
-    int res = process_frame_buffer(fb);
+    int res = process_frame_buffer(fb, out, out_size);
 
     esp_camera_fb_return(fb);
     ESP_LOGI(TAG, "Frame buffer returned");

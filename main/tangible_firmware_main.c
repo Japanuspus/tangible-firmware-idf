@@ -6,8 +6,11 @@
 #include "network.h"
 #include "qrcamera.h"
 
+#define QR_BUFFER_SIZE 128
+
 static const char *TAG = "blink"; //for log
 
+static char qr_buffer[QR_BUFFER_SIZE];
 static uint8_t s_led_state = 0;
 static const gpio_num_t BLINK_GPIO = GPIO_NUM_33;
 
@@ -42,10 +45,15 @@ void app_main(void)
         blink_led();
 
         ESP_LOGI(TAG, "Running QR count");
-        int count = qrcamera_get();
+        int count = qrcamera_get(qr_buffer, QR_BUFFER_SIZE);
         ESP_LOGI(TAG, "QR count: %d", count);
 
-        esp_err_t err = post_message("The foo");
+        esp_err_t err;
+        if (count == 1) {
+            err = post_message(qr_buffer);
+        } else {
+            err = post_message("no code");
+        }
         if (err != ESP_OK) {
             ESP_LOGI(TAG, "Post failed");
         } else {

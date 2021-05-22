@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 esp_err_t qrcamera_setup();
-int qrcamera_get();
+int qrcamera_get(char *out, size_t out_size);
 
 #ifdef __cplusplus
 }
