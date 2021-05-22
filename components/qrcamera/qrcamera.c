@@ -1,6 +1,7 @@
 #include <string.h> // for memset
 
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_camera.h"
 
 #include "quirc.h"
@@ -79,43 +80,10 @@ static const char *data_type_str(int dt)
     return "unknown";
 }
 
-void dump_ram_state() {}
-
-// qr_recognizer must be initialized
-// <0: failure
-// 0: ok, but no or more than 1 match
-// 1: exactly one match
-int qr_recognize() 
-{   
-    camera_fb_t *fb = NULL;
-
-    if (camera_config.frame_size > FRAMESIZE_SVGA) {
-        ESP_LOGI(TAG, "Camera Frame Size err %d, support maxsize is QVGA", (camera_config.frame_size));
-        return -1;
-    }
-
-    dump_ram_state();
-    fb = esp_camera_fb_get();
-    if (!fb) {
-        ESP_LOGI(TAG, "Camera capture failed");
-        return -2;
-    }
-    ESP_LOGI(TAG, "Camera capture success");
-    dump_ram_state();
-
-    qr_recognizer.w = fb->width;
-    qr_recognizer.h = fb->height;
-    qr_recognizer.image = fb->buf;
-
-    quirc_end(&qr_recognizer);
-
-    esp_camera_fb_return(fb);
-    ESP_LOGI(TAG, "Frame buffer returned");
-    dump_ram_state();
-    
-    // Return the number of QR-codes identified in the last processed image.
-    return quirc_count(&qr_recognizer);
+void dump_ram_state() {
+    ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
 }
+
 
 static void dump_data(const struct quirc_data *data)
 {
@@ -131,25 +99,31 @@ static void dump_data(const struct quirc_data *data)
 }
 
 
-int qr_unique(camera_config_t *camera_config, struct quirc *qr_recognizer, struct quirc_data *data) {
-    int res=qr_recognize(camera_config, qr_recognizer);
-    ESP_LOGI(TAG, "Found %d QR code matches", res);
-    if (res<0) {return res;}
-    if (res==0 || res>1) {return res;}
+int process_frame_buffer(camera_fb_t *fb) {
+    quirc_analyze_buffer(&qr_recognizer, fb->buf, fb->width, fb->height);
+ 
+    // Check number of qr codes    
+    int count = quirc_count(&qr_recognizer);
+    ESP_LOGI(TAG, "Found %d qr codes", count);
+    if (count != 1) {
+        return 0;
+    }
 
-    ESP_LOGI(TAG, "Trying to extract matches");
-    // Extract the QR-code specified by the given index.
-    quirc_extract(qr_recognizer, 0, &qr_code);
-
+    // Exactly one code: decode
+    ESP_LOGI(TAG, "Extracting unique qr code");
+    quirc_extract(&qr_recognizer, 0, &qr_code); //0: index
+ 
+    ESP_LOGI(TAG, "...decoding");
     //Decode a QR-code, returning the payload data.
-    quirc_decode_error_t err = quirc_decode(&qr_code, data);
+    quirc_decode_error_t err = quirc_decode(&qr_code, &qr_data);
     if (err) {
         ESP_LOGI(TAG, "Decoding FAILED: %s\n", quirc_strerror(err));
         return -10;
     }
     ESP_LOGI(TAG, "Successfully decoded unique QR");
-    dump_data(data);
+    dump_data(&qr_data);
     return 1;
+
 }
 
 esp_err_t qrcamera_setup() {
@@ -157,6 +131,26 @@ esp_err_t qrcamera_setup() {
     return setup_camera();
 }
 
+// qr_recognizer must be initialized
+// <0: failure
+// -2: no framebuffer
+// 0: ok, but no unique match
+// 1: exactly one match
 int qrcamera_get() {
-    return qr_unique(&camera_config, &qr_recognizer, &qr_data);
+    camera_fb_t *fb = NULL;
+    dump_ram_state();
+    fb = esp_camera_fb_get();
+    if (!fb) {
+        ESP_LOGI(TAG, "Camera capture failed");
+        return -2;
+    }
+    ESP_LOGI(TAG, "Camera capture success");
+    dump_ram_state();
+    int res = process_frame_buffer(fb);
+
+    esp_camera_fb_return(fb);
+    ESP_LOGI(TAG, "Frame buffer returned");
+    dump_ram_state();
+
+    return res;
 }
