@@ -1,3 +1,5 @@
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h> // for memset
 
 #include "esp_log.h"
@@ -7,6 +9,7 @@
 #include "quirc.h"
 #include "quirc_internal.h"
 #include "qrcamera.h"
+#include "driver/gpio.h"
 
 static camera_config_t camera_config;
 static struct quirc qr_recognizer;
@@ -14,6 +17,8 @@ static struct quirc_data qr_data;
 static struct quirc_code qr_code;
 
 static const char *TAG = "qrcamera"; //for log
+
+static const gpio_num_t flash_pin = GPIO_NUM_4;
 
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
@@ -81,20 +86,20 @@ static const char *data_type_str(int dt)
 }
 
 void dump_ram_state() {
-    ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
+    //ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
 }
 
 
 static void dump_data(const struct quirc_data *data)
 {
-    ESP_LOGI(TAG, "Version: %d\n", data->version);
-    ESP_LOGI(TAG, "ECC level: %c\n", "MLHQ"[data->ecc_level]);
-    ESP_LOGI(TAG, "Mask: %d\n", data->mask);
-    ESP_LOGI(TAG, "Data type: %d (%s)\n", data->data_type, data_type_str(data->data_type));
-    ESP_LOGI(TAG, "Length: %d\n", data->payload_len);
-    ESP_LOGI(TAG, "Payload: %s\n", data->payload);
+    ESP_LOGI(TAG, "Version: %d", data->version);
+    ESP_LOGI(TAG, "ECC level: %c", "MLHQ"[data->ecc_level]);
+    ESP_LOGI(TAG, "Mask: %d", data->mask);
+    ESP_LOGI(TAG, "Data type: %d (%s)", data->data_type, data_type_str(data->data_type));
+    ESP_LOGI(TAG, "Length: %d", data->payload_len);
+    ESP_LOGI(TAG, "Payload: %s", data->payload);
     if (data->eci) {
-        ESP_LOGI(TAG, "ECI: %d\n", data->eci);
+        ESP_LOGI(TAG, "ECI: %d", data->eci);
     }
 }
 
@@ -108,31 +113,42 @@ int process_frame_buffer(camera_fb_t *fb, char *out, size_t out_size) {
     if (count != 1) {
         return 0;
     }
-
     // Exactly one code: decode
-    ESP_LOGI(TAG, "Extracting unique qr code");
     quirc_extract(&qr_recognizer, 0, &qr_code); //0: index
  
-    ESP_LOGI(TAG, "...decoding");
+    ESP_LOGI(TAG, "Extract complete, decoding");
     //Decode a QR-code, returning the payload data.
     quirc_decode_error_t err = quirc_decode(&qr_code, &qr_data);
     if (err) {
         ESP_LOGI(TAG, "Decoding FAILED: %s\n", quirc_strerror(err));
         return -10;
     }
-    ESP_LOGI(TAG, "Successfully decoded unique QR");
     dump_data(&qr_data);
     if (qr_data.payload_len>=out_size) {
         ESP_LOGI(TAG, "Oversize payload: %d > %d", out_size, qr_data.payload_len);
         return -20;
     }
+    ESP_LOGI(TAG, "Successfully decoded unique QR");
     memcpy(out, qr_data.payload, qr_data.payload_len);
     out[qr_data.payload_len]=0;
     return 1;
 }
 
+void set_flash_state(bool onoff) {
+    gpio_set_level(flash_pin, onoff?1:0);
+}
+
+void setup_flash(void) {
+    gpio_reset_pin(flash_pin);
+    set_flash_state(false);
+    gpio_set_direction(flash_pin, GPIO_MODE_OUTPUT);
+    gpio_set_drive_capability(flash_pin, GPIO_DRIVE_CAP_0); //~10mA
+    set_flash_state(false);
+}
+
 esp_err_t qrcamera_setup() {
     memset(&qr_recognizer, 0, sizeof(qr_recognizer));
+    setup_flash();
     return setup_camera();
 }
 
@@ -144,7 +160,10 @@ esp_err_t qrcamera_setup() {
 int qrcamera_get(char *out, size_t out_size) {
     camera_fb_t *fb = NULL;
     dump_ram_state();
+    set_flash_state(true);
+    vTaskDelay(10 / portTICK_PERIOD_MS);
     fb = esp_camera_fb_get();
+    set_flash_state(false);
     if (!fb) {
         ESP_LOGI(TAG, "Camera capture failed");
         return -2;
